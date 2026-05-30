@@ -16,8 +16,10 @@ def handle_sqs_message(event: dict, context) -> dict:
     for record in records:
         try:
             body = json.loads(record["body"])
+            envelope = body
             payload = json.loads(body.get("payload_json", body.get("Message", "{}")))
-            _procesar_interaccion(payload)
+            event_id = _extraer_event_id(envelope, payload)
+            _procesar_interaccion(payload, event_id)
             procesados += 1
         except Exception as e:
             logger.error(
@@ -33,8 +35,27 @@ def handle_sqs_message(event: dict, context) -> dict:
     return {"procesados": procesados, "errores": errores}
 
 
-def _procesar_interaccion(payload: dict) -> None:
+def _extraer_event_id(envelope: dict, payload: dict) -> str:
+    """Obtiene el event_id del DomainEvent/EventEnvelope de sward-shared.
+
+    Busca primero en el envelope (EventEnvelope) y luego en el payload
+    (DomainEvent). Si no viaja en ningún sitio, genera uno determinístico a
+    partir del contenido para no romper el procesamiento.
+    """
+    event_id = envelope.get("event_id") or payload.get("event_id")
+    if event_id:
+        return str(event_id)
+
+    logger.warning(
+        "Evento sin event_id, se genera uno determinístico | payload=%s", payload
+    )
+    base = json.dumps(payload, sort_keys=True, default=str)
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, base))
+
+
+def _procesar_interaccion(payload: dict, event_id: str) -> None:
     from lib.db_client import get_connection
+    from lib.idempotency import ya_procesado
 
     estudiante_id = payload.get("estudiante_id")
     curso_id = payload.get("curso_id")
@@ -44,7 +65,19 @@ def _procesar_interaccion(payload: dict) -> None:
         logger.warning("Payload incompleto, se omite | payload=%s", payload)
         return
 
+    # processed_events vive en trazabilidad_db (misma conexión que el negocio),
+    # por lo que el dedup y el UPDATE/INSERT son atómicos en una sola transacción.
     with get_connection() as conn:
+        if ya_procesado(conn, event_id):
+            conn.commit()
+            logger.info(
+                "Evento duplicado, omitido | event_id=%s | estudiante=%s | curso=%s",
+                event_id,
+                estudiante_id,
+                curso_id,
+            )
+            return
+
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -72,7 +105,10 @@ def _procesar_interaccion(payload: dict) -> None:
 
         conn.commit()
     logger.info(
-        "Interacción procesada | estudiante=%s | curso=%s", estudiante_id, curso_id
+        "Interacción procesada | event_id=%s | estudiante=%s | curso=%s",
+        event_id,
+        estudiante_id,
+        curso_id,
     )
 
 
