@@ -10,7 +10,9 @@ def get_connection():
     try:
         import psycopg2
     except ImportError:
-        raise RuntimeError("psycopg2 no disponible. Incluirlo en requirements.txt del Lambda.")
+        raise RuntimeError(
+            "psycopg2 no disponible. Incluirlo en requirements.txt del Lambda."
+        )
 
     conn = psycopg2.connect(DATABASE_URL)
     try:
