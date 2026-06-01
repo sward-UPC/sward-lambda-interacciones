@@ -5,7 +5,6 @@ Trigger: SQS → normaliza InteraccionRegistradaEvent
 import json
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from handler import handle_sqs_message
 
