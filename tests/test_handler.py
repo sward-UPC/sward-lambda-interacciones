@@ -2,6 +2,7 @@
 
 Trigger: SQS → normaliza InteraccionRegistradaEvent
 """
+
 import json
 from unittest.mock import MagicMock, patch
 
