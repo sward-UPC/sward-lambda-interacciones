@@ -17,7 +17,16 @@ def handle_sqs_message(event: dict, context) -> dict:
         try:
             body = json.loads(record["body"])
             envelope = body
-            payload = json.loads(body.get("payload_json", body.get("Message", "{}")))
+            if "payload_json" in body:
+                payload = json.loads(body["payload_json"])
+            elif "Message" in body:
+                payload = json.loads(body["Message"])
+            elif "detail" in body:
+                # EventBridge event sin input transformer
+                payload = body["detail"]
+            else:
+                # EventBridge con input transformer enviando $.detail directamente
+                payload = body
             event_id = _extraer_event_id(envelope, payload)
             _procesar_interaccion(payload, event_id)
             procesados += 1
